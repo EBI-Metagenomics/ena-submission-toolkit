@@ -33,10 +33,16 @@ dependencies = [
     "typer>=0.9",
 ]
 
-[project.optional-dependencies]
+# Standardised dev group across the MIMICC/ENA repos; `uv sync` installs it by
+# default, so CI needs no extra flag for it.
+[dependency-groups]
 dev = [
+    "mypy>=1.14",
+    "pre-commit>=4",
     "pytest>=8.0",
-    "pre-commit>=3.7",
+    "ruff>=0.16",
+    "types-PyYAML",
+    "lxml-stubs",
 ]
 
 [project.scripts]
@@ -55,3 +61,31 @@ ena_submission_toolkit = ["assets/ena_schema/*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+# Typer's whole API is call-in-default; B008 fires on every CLI parameter.
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["typer.Option", "typer.Argument"]
+
+[tool.mypy]
+python_version = "3.11"
+
+# ena_api and linkml_lib are pinned to git tags that predate their py.typed
+# markers; drop them from this list once the pins are bumped past that.
+[[tool.mypy.overrides]]
+module = [
+    "ena_api.*",
+    "linkml_lib.*",
+    "ena_api_handler.*",
+    "linkml.*",
+    "linkml_runtime.*",
+    "pendulum.*",
+]
+ignore_missing_imports = true

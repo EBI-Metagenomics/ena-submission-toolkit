@@ -9,12 +9,10 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from textwrap import dedent
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-
-
-from ena_api import WebinClient, WebinConfig
+from ena_api import WebinConfig
 
 from ena_submission_toolkit.common import (
     _is_metadata_row,
@@ -30,7 +28,6 @@ from ena_submission_toolkit.common import (
     write_results,
     xml_to_bytes,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -61,7 +58,6 @@ def minimal_schema() -> dict[str, Any]:
 
 
 class TestGetCredentials:
-
     def test_returns_username_and_password(self) -> None:
         with patch.dict(os.environ, {"ENA_WEBIN": "Webin-123", "ENA_WEBIN_PASSWORD": "secret"}):
             user, pw = get_credentials()
@@ -102,24 +98,29 @@ class TestGetCredentials:
 
 
 class TestCreateWebinClient:
-
     def test_returns_webin_client(self) -> None:
-        with patch.dict(os.environ, {"ENA_WEBIN": "Webin-123", "ENA_WEBIN_PASSWORD": "pass"}), \
-             patch("ena_submission_toolkit.common.WebinClient") as MockClient:
+        with (
+            patch.dict(os.environ, {"ENA_WEBIN": "Webin-123", "ENA_WEBIN_PASSWORD": "pass"}),
+            patch("ena_submission_toolkit.common.WebinClient") as MockClient,
+        ):
             client = create_webin_client(test=False)
         assert client is MockClient.return_value
 
     def test_passes_test_flag(self) -> None:
-        with patch.dict(os.environ, {"ENA_WEBIN": "Webin-123", "ENA_WEBIN_PASSWORD": "pass"}), \
-             patch("ena_submission_toolkit.common.WebinConfig", wraps=WebinConfig) as MockConfig, \
-             patch("ena_submission_toolkit.common.WebinClient"):
+        with (
+            patch.dict(os.environ, {"ENA_WEBIN": "Webin-123", "ENA_WEBIN_PASSWORD": "pass"}),
+            patch("ena_submission_toolkit.common.WebinConfig", wraps=WebinConfig) as MockConfig,
+            patch("ena_submission_toolkit.common.WebinClient"),
+        ):
             create_webin_client(test=True)
         assert MockConfig.call_args.kwargs.get("test") is True
 
     def test_prod_flag_by_default(self) -> None:
-        with patch.dict(os.environ, {"ENA_WEBIN": "Webin-123", "ENA_WEBIN_PASSWORD": "pass"}), \
-             patch("ena_submission_toolkit.common.WebinConfig", wraps=WebinConfig) as MockConfig, \
-             patch("ena_submission_toolkit.common.WebinClient"):
+        with (
+            patch.dict(os.environ, {"ENA_WEBIN": "Webin-123", "ENA_WEBIN_PASSWORD": "pass"}),
+            patch("ena_submission_toolkit.common.WebinConfig", wraps=WebinConfig) as MockConfig,
+            patch("ena_submission_toolkit.common.WebinClient"),
+        ):
             create_webin_client()
         assert MockConfig.call_args.kwargs.get("test") is False
 
@@ -137,7 +138,6 @@ class TestCreateWebinClient:
 
 
 class TestXmlToBytes:
-
     def test_returns_bytes(self) -> None:
         root = ET.Element("ROOT")
         assert isinstance(xml_to_bytes(root), bytes)
@@ -151,7 +151,9 @@ class TestXmlToBytes:
         root = ET.Element("SAMPLE")
         ET.SubElement(root, "TITLE").text = "hello"
         parsed = ET.fromstring(xml_to_bytes(root))
-        assert parsed.find("TITLE").text == "hello"
+        title = parsed.find("TITLE")
+        assert title is not None
+        assert title.text == "hello"
 
     def test_utf8_encoding(self) -> None:
         root = ET.Element("ROOT")
@@ -166,9 +168,9 @@ class TestXmlToBytes:
 
 
 class TestValidateHoldUntil:
-
     def test_valid_future_date_accepted(self) -> None:
         import pendulum
+
         within_two_years = pendulum.today().add(years=1).to_date_string()
         date = validate_hold_until(within_two_years)
         assert date is not None
@@ -187,6 +189,7 @@ class TestValidateHoldUntil:
 
     def test_today_raises(self) -> None:
         import pendulum
+
         today = pendulum.today().date().to_date_string()
         with pytest.raises(ValueError, match="not in the future"):
             validate_hold_until(today)
@@ -198,7 +201,6 @@ class TestValidateHoldUntil:
 
 
 class TestFindDuplicates:
-
     @staticmethod
     def _account(title: str = "", alias: str = "", accession: str = "ACC1") -> dict[str, str]:
         return {"title": title, "alias": alias, "accession": accession, "secondary_accession": "", "status": "PRIVATE"}
@@ -207,7 +209,8 @@ class TestFindDuplicates:
         dups = find_duplicates_by_alias_title(
             [{"TITLE": "X", "alias": "my-alias"}],
             [self._account(alias="my-alias", accession="ACC1")],
-            title_field="TITLE", entity_label="records",
+            title_field="TITLE",
+            entity_label="records",
         )
         assert 0 in dups
         assert "alias" in dups[0]["match_reason"]
@@ -216,7 +219,8 @@ class TestFindDuplicates:
         dups = find_duplicates_by_alias_title(
             [{"TITLE": "My Study"}],
             [self._account(title="My Study", accession="ACC2")],
-            title_field="TITLE", entity_label="records",
+            title_field="TITLE",
+            entity_label="records",
         )
         assert 0 in dups
         assert "title" in dups[0]["match_reason"]
@@ -225,7 +229,8 @@ class TestFindDuplicates:
         dups = find_duplicates_by_alias_title(
             [{"TITLE": "Novel", "alias": "novel"}],
             [self._account(title="Existing", alias="existing")],
-            title_field="TITLE", entity_label="records",
+            title_field="TITLE",
+            entity_label="records",
         )
         assert dups == {}
 
@@ -250,11 +255,16 @@ class TestFindDuplicates:
 
 
 class TestClassifyDuplicates:
-
     @staticmethod
     def _dup(accession: str = "ACC1", alias: str = "a", reason: str = "alias 'a'") -> dict[str, str]:
-        return {"accession": accession, "secondary_accession": "", "alias": alias,
-                "title": "", "status": "PRIVATE", "match_reason": reason}
+        return {
+            "accession": accession,
+            "secondary_accession": "",
+            "alias": alias,
+            "title": "",
+            "status": "PRIVATE",
+            "match_reason": reason,
+        }
 
     def test_no_duplicates_all_go_to_submit(self) -> None:
         records = [{"TITLE": "A"}, {"TITLE": "B"}]
@@ -266,7 +276,9 @@ class TestClassifyDuplicates:
     def test_duplicate_goes_to_entries_not_submit(self) -> None:
         records = [{"TITLE": "A", "alias": "a1"}, {"TITLE": "B"}]
         to_submit, to_modify, entries = classify_duplicates(
-            records, {0: self._dup(accession="ACC1", alias="a1")}, title_field="TITLE",
+            records,
+            {0: self._dup(accession="ACC1", alias="a1")},
+            title_field="TITLE",
         )
         assert len(to_submit) == 1
         assert to_submit[0]["TITLE"] == "B"
@@ -277,7 +289,10 @@ class TestClassifyDuplicates:
     def test_force_false_does_not_populate_to_modify(self) -> None:
         records = [{"TITLE": "A", "alias": "a1"}]
         _, to_modify, _ = classify_duplicates(
-            records, {0: self._dup()}, title_field="TITLE", force=False,
+            records,
+            {0: self._dup()},
+            title_field="TITLE",
+            force=False,
         )
         assert to_modify == []
 
@@ -312,7 +327,6 @@ class TestClassifyDuplicates:
 
 
 class TestMatchByAliasTitle:
-
     def test_alias_match(self) -> None:
         by_alias = {"x": {"accession": "A1", "alias": "x", "title": "", "status": "OK", "secondary_accession": ""}}
         result = _match_by_alias_title("x", "", by_alias, {})
@@ -335,7 +349,6 @@ class TestMatchByAliasTitle:
 
 
 class TestExtractRecordsFromJson:
-
     def test_plain_list(self) -> None:
         result = extract_records_from_json([{"a": "1"}])
         assert result == [{"a": "1"}]
@@ -363,7 +376,6 @@ class TestExtractRecordsFromJson:
 
 
 class TestExtractRecordsFromTabular:
-
     def test_basic_csv(self, tmp_path: Path) -> None:
         f = tmp_path / "data.csv"
         f.write_text("name,value\nalpha,1\nbeta,2\n")
@@ -400,7 +412,6 @@ class TestExtractRecordsFromTabular:
 
 
 class TestIsMetadataRow:
-
     def test_single_non_empty_cell_is_metadata(self) -> None:
         assert _is_metadata_row(["DataHarmonizer v1", "", "", ""])
 
@@ -417,7 +428,6 @@ class TestIsMetadataRow:
 
 
 class TestParseChecklistUnits:
-
     def test_parses_field_units(self, tmp_path: Path) -> None:
         xml_content = dedent("""\
             <CHECKLIST>
@@ -455,7 +465,6 @@ class TestParseChecklistUnits:
 
 
 class TestWriteResults:
-
     def test_writes_to_file(self, tmp_path: Path) -> None:
         out = tmp_path / "results.json"
         write_results({"submitted": [], "failed": []}, out)

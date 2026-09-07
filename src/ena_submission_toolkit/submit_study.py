@@ -28,9 +28,9 @@ from typing import Any
 import httpx
 import pendulum
 import typer
+from ena_api import WebinClient
 
 from . import common
-from ena_api import WebinClient
 
 app = typer.Typer(help="Submit studies to ENA via the Webin REST API v2.", add_completion=False)
 logger = logging.getLogger("ena_submit.study")
@@ -39,6 +39,7 @@ logger = logging.getLogger("ena_submit.study")
 # -------------------------------------------------------------------
 # XML construction
 # -------------------------------------------------------------------
+
 
 def build_submission_xml(
     studies: list[dict[str, Any]],
@@ -93,6 +94,7 @@ def _add_project_attribute(parent: ET.Element, tag_text: str, value_text: str) -
 # XSD fallback structural checker
 # -------------------------------------------------------------------
 
+
 def _validate_study_xml_structure(xml_bytes: bytes, messages: list[str]) -> tuple[bool, list[str]]:
     """Fallback structural check for study XML."""
     try:
@@ -140,6 +142,7 @@ def _validate_study_xml_structure(xml_bytes: bytes, messages: list[str]) -> tupl
 # Public library functions
 # -------------------------------------------------------------------
 
+
 def build_manifest(
     studies: list[dict[str, Any]],
     *,
@@ -154,7 +157,8 @@ def build_manifest(
 def validate_manifest(xml_bytes: bytes, xsd_dir: str | Path) -> tuple[bool, list[str]]:
     """Validate study XML against ENA.project.xsd."""
     is_valid, messages = common.validate_xml_against_xsd(
-        xml_bytes, xsd_dir,
+        xml_bytes,
+        xsd_dir,
         xsd_filename="ENA.project.xsd",
         fragment_tag="PROJECT_SET",
         fallback_checker=_validate_study_xml_structure,
@@ -225,22 +229,24 @@ def submit_batch(
 # JSON loader
 # -------------------------------------------------------------------
 
+
 def _load_studies_json(path: Path) -> list[dict[str, Any]]:
     data = json.loads(path.read_text())
     try:
         container = data["Container"]
         records = next(v for v in container.values() if isinstance(v, list))
-    except (KeyError, TypeError, StopIteration):
+    except (KeyError, TypeError, StopIteration) as exc:
         raise ValueError(
             f"Expected a DataHarmonizer JSON export with a 'Container' key; "
             f"got top-level keys: {list(data.keys()) if isinstance(data, dict) else type(data).__name__}"
-        )
+        ) from exc
     return records
 
 
 # -------------------------------------------------------------------
 # Full submission pipeline
 # -------------------------------------------------------------------
+
 
 def submit_studies(
     input_file: Path,
@@ -274,7 +280,12 @@ def submit_studies(
         results["duplicates"] = duplicate_entries
         if to_modify:
             success, accessions = submit_batch(
-                to_modify, "MODIFY", xsd=xsd, hold_until=hold_until, client=client, env_label=env_label,
+                to_modify,
+                "MODIFY",
+                xsd=xsd,
+                hold_until=hold_until,
+                client=client,
+                env_label=env_label,
             )
             results["modified"] = accessions if success else []
             if not success:
@@ -285,7 +296,12 @@ def submit_studies(
         return results
 
     success, accessions = submit_batch(
-        studies, "ADD", xsd=xsd, hold_until=hold_until, client=client, env_label=env_label,
+        studies,
+        "ADD",
+        xsd=xsd,
+        hold_until=hold_until,
+        client=client,
+        env_label=env_label,
     )
     if success:
         logger.info("ADD successful: %d study/studies", len(accessions))
@@ -293,7 +309,12 @@ def submit_studies(
     elif resubmit_with_modify:
         logger.info("ADD failed; retrying as MODIFY...")
         success, accessions = submit_batch(
-            studies, "MODIFY", xsd=xsd, hold_until=hold_until, client=client, env_label=env_label,
+            studies,
+            "MODIFY",
+            xsd=xsd,
+            hold_until=hold_until,
+            client=client,
+            env_label=env_label,
         )
         if success:
             logger.info("MODIFY successful: %d study/studies", len(accessions))
@@ -311,6 +332,7 @@ def submit_studies(
 # -------------------------------------------------------------------
 # CLI
 # -------------------------------------------------------------------
+
 
 def _log_summary(results: dict[str, list]) -> None:
     logger.info("=" * 60)
@@ -330,14 +352,32 @@ def _log_summary(results: dict[str, list]) -> None:
 @app.command()
 def main(
     input_file: Path = typer.Option(..., "--input", exists=True, help="Path to study metadata JSON file"),
-    xsd: Path = typer.Option(..., exists=True, file_okay=False, resolve_path=True, help="Directory containing ENA.project.xsd and SRA.common.xsd"),
+    xsd: Path = typer.Option(
+        ...,
+        exists=True,
+        file_okay=False,
+        resolve_path=True,
+        help="Directory containing ENA.project.xsd and SRA.common.xsd",
+    ),
     test: bool = typer.Option(False, "--test", help="Use the ENA test service (submissions are discarded daily)"),
-    hold_until: str | None = typer.Option(None, "--hold-until", help="Hold studies private until this date (YYYY-MM-DD, max 2 years from now)"),
+    hold_until: str | None = typer.Option(
+        None, "--hold-until", help="Hold studies private until this date (YYYY-MM-DD, max 2 years from now)"
+    ),
     log: Path | None = typer.Option(None, help="Path to log file"),
     output: Path | None = typer.Option(None, help="Path to write JSON accession results (default: stdout)"),
-    resubmit_with_modify: bool = typer.Option(False, "--resubmit-with-modify", help="If ADD fails, resubmit all records as MODIFY"),
-    check_for_duplicates: bool = typer.Option(False, "--check-for-duplicates", help="Check records against existing studies on the account by alias/title before submitting"),
-    force: bool = typer.Option(False, "--force", help="With --check-for-duplicates, resubmit matched duplicates as MODIFY instead of skipping them"),
+    resubmit_with_modify: bool = typer.Option(
+        False, "--resubmit-with-modify", help="If ADD fails, resubmit all records as MODIFY"
+    ),
+    check_for_duplicates: bool = typer.Option(
+        False,
+        "--check-for-duplicates",
+        help="Check records against existing studies on the account by alias/title before submitting",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="With --check-for-duplicates, resubmit matched duplicates as MODIFY instead of skipping them",
+    ),
 ) -> None:
     """Submit studies to ENA via the Webin REST API v2."""
     common.setup_logging(log)
@@ -345,15 +385,17 @@ def main(
     logger.info("ENA Study Submission — environment: %s", env_label)
     try:
         results = submit_studies(
-            input_file, xsd,
-            test=test, hold_until=hold_until,
+            input_file,
+            xsd,
+            test=test,
+            hold_until=hold_until,
             resubmit_with_modify=resubmit_with_modify,
             check_for_duplicates=check_for_duplicates,
             force=force,
         )
     except (ValueError, httpx.HTTPStatusError) as exc:
         logger.error("%s", exc)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     common.write_results(results, output)
     _log_summary(results)
 

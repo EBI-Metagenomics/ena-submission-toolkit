@@ -41,6 +41,7 @@ _MAX_HOLD_YEARS: Final = 2
 # Logging
 # -------------------------------------------------------------------
 
+
 def setup_logging(log_file: Path | None = None, level: int = logging.INFO) -> None:
     """Configure stderr and optional file logging for the ena_submit logger tree.
 
@@ -72,6 +73,7 @@ def setup_logging(log_file: Path | None = None, level: int = logging.INFO) -> No
 # Credentials
 # -------------------------------------------------------------------
 
+
 def get_credentials() -> tuple[str, str]:
     """Read ENA credentials from ENA_WEBIN and ENA_WEBIN_PASSWORD env vars.
 
@@ -98,6 +100,7 @@ def create_webin_client(test: bool = False) -> WebinClient:
 # XML utilities
 # -------------------------------------------------------------------
 
+
 def xml_to_bytes(root: ET.Element) -> bytes:
     """Serialise an ElementTree element to UTF-8 bytes with XML declaration."""
     buf = BytesIO()
@@ -109,6 +112,7 @@ def xml_to_bytes(root: ET.Element) -> bytes:
 # Hold-until date validation
 # -------------------------------------------------------------------
 
+
 def validate_hold_until(hold_until: str) -> pendulum.Date:
     """Parse and validate a hold-until date string (YYYY-MM-DD).
 
@@ -119,6 +123,11 @@ def validate_hold_until(hold_until: str) -> pendulum.Date:
         hold_date = pendulum.parse(hold_until, exact=True)
     except (ValueError, pendulum.parsing.ParserError):
         raise ValueError(f"Invalid date format: {hold_until!r}. Expected YYYY-MM-DD.") from None
+
+    # exact=True also yields Time/Duration for inputs like "12:30" or "P1D";
+    # those are not hold dates.
+    if not isinstance(hold_date, pendulum.Date):
+        raise ValueError(f"Invalid date format: {hold_until!r}. Expected YYYY-MM-DD.")
 
     today = pendulum.today().date()
     max_date = today.add(years=_MAX_HOLD_YEARS)
@@ -137,6 +146,7 @@ def validate_hold_until(hold_until: str) -> pendulum.Date:
 # -------------------------------------------------------------------
 # ENA checklist XML parsing
 # -------------------------------------------------------------------
+
 
 def parse_checklist_units(xml_path: str | Path) -> dict[str, str]:
     """Parse an ENA checklist XML and return a mapping of field name to unit string."""
@@ -165,6 +175,7 @@ def parse_checklist_units(xml_path: str | Path) -> dict[str, str]:
 # -------------------------------------------------------------------
 # XSD validation
 # -------------------------------------------------------------------
+
 
 def validate_xml_against_xsd(
     xml_bytes: bytes,
@@ -210,7 +221,7 @@ def validate_xml_against_xsd(
             messages.append("XSD validation passed (lxml)")
             return True, messages
 
-        for error in xsd_schema.error_log:
+        for error in xsd_schema.error_log:  # type: ignore[attr-defined]  # lxml-stubs gap
             messages.append(f"XSD ERROR: {error}")
         return False, messages
 
@@ -237,6 +248,7 @@ def validate_xml_against_xsd(
 # File loading (CSV, TSV, XLS, XLSX, JSON)
 # -------------------------------------------------------------------
 
+
 def _is_metadata_row(row: Sequence[object]) -> bool:
     """Return True if row looks like a DataHarmonizer label row (at most one non-empty cell)."""
     return sum(1 for c in row if c is not None and str(c).strip()) <= 1
@@ -256,8 +268,8 @@ def extract_records_from_tabular(filepath: str | Path, delimiter: str = ",") -> 
 
     headers = rows[idx]
     return [
-        {col.strip(): val.strip() for col, val in zip(headers, row) if col.strip() and val.strip()}
-        for row in rows[idx + 1:]
+        {col.strip(): val.strip() for col, val in zip(headers, row, strict=False) if col.strip() and val.strip()}
+        for row in rows[idx + 1 :]
         if any(val.strip() for val in row)
     ]
 
@@ -317,10 +329,10 @@ def load_records(path: str | Path) -> list[dict[str, Any]]:
     raise ValueError(f"Unsupported input file extension '{suffix}' for {path}; expected .json, .csv, or .tsv")
 
 
-
 # -------------------------------------------------------------------
 # Duplicate detection
 # -------------------------------------------------------------------
+
 
 def find_duplicates_by_alias_title(
     new_records: Sequence[dict[str, Any]],
@@ -336,7 +348,9 @@ def find_duplicates_by_alias_title(
     by_alias = {(rec.get("alias") or "").strip(): rec for rec in account_records if (rec.get("alias") or "").strip()}
 
     total = len(new_records)
-    logger.info("Checking %d new %s against %d existing account %s...", total, entity_label, len(account_records), entity_label)
+    logger.info(
+        "Checking %d new %s against %d existing account %s...", total, entity_label, len(account_records), entity_label
+    )
 
     duplicates: dict[int, dict[str, str]] = {}
     for i, record in enumerate(new_records):
@@ -349,8 +363,13 @@ def find_duplicates_by_alias_title(
         match = _match_by_alias_title(new_alias, new_title, by_alias, by_title)
         if match is not None:
             duplicates[i] = match
-            logger.info("  Duplicate: '%s' matches %s -> %s (%s)",
-                        new_title or new_alias, match["match_reason"], match["accession"], match["status"])
+            logger.info(
+                "  Duplicate: '%s' matches %s -> %s (%s)",
+                new_title or new_alias,
+                match["match_reason"],
+                match["accession"],
+                match["status"],
+            )
             if len(duplicates) == total:
                 logger.info("All %s are duplicates — skipping further checks", entity_label)
                 return duplicates
@@ -385,16 +404,23 @@ def classify_duplicates(
     for idx, dup_info in duplicates.items():
         title = (records[idx].get(title_field) or f"record[{idx}]").strip()
         action_label = "will be re-submitted with MODIFY" if force else "will NOT be submitted"
-        logger.warning("DUPLICATE: '%s' matches existing %s (accession: %s) — %s",
-                       title, dup_info["match_reason"], dup_info["accession"], action_label)
-        duplicate_entries.append({
-            "input_index": idx,
-            "title": title,
-            "alias": records[idx].get("alias", ""),
-            "existing_accession": dup_info["accession"],
-            "existing_secondary_accession": dup_info.get("secondary_accession", ""),
-            "match_reason": dup_info["match_reason"],
-        })
+        logger.warning(
+            "DUPLICATE: '%s' matches existing %s (accession: %s) — %s",
+            title,
+            dup_info["match_reason"],
+            dup_info["accession"],
+            action_label,
+        )
+        duplicate_entries.append(
+            {
+                "input_index": idx,
+                "title": title,
+                "alias": records[idx].get("alias", ""),
+                "existing_accession": dup_info["accession"],
+                "existing_secondary_accession": dup_info.get("secondary_accession", ""),
+                "match_reason": dup_info["match_reason"],
+            }
+        )
         if force:
             record_copy = dict(records[idx])
             if existing_alias := dup_info.get("alias"):
@@ -430,6 +456,7 @@ def _match_by_alias_title(
 # -------------------------------------------------------------------
 # Result output
 # -------------------------------------------------------------------
+
 
 def write_results(results: dict[str, list[dict[str, Any]]], output_path: Path | None) -> None:
     """Write JSON results to a file (if output_path given) or stdout."""

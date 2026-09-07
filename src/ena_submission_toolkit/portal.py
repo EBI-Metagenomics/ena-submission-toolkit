@@ -152,10 +152,7 @@ def _rows(client: ENAClient, result: ENAPortalResultType, query: str) -> list[di
     # warnings=False: the handler coerces base_count/read_count/tax_id to int
     # after validation, against a model that declares them str, and pydantic
     # says so on every dump.
-    return [
-        {_BLANK_BOOLS_BACK.get(k, k): v for k, v in model.model_dump(warnings=False).items()}
-        for model in models
-    ]
+    return [{_BLANK_BOOLS_BACK.get(k, k): v for k, v in model.model_dump(warnings=False).items()} for model in models]
 
 
 def _or_query(fields: Sequence[str], accessions: Sequence[str]) -> str:
@@ -245,18 +242,14 @@ def search_public(
     """
     result = PORTAL_RESULTS.get(entity)
     if result is None:
-        raise ValueError(
-            f"No public search for {entity!r}; expected one of {', '.join(PORTAL_RESULTS)}"
-        )
+        raise ValueError(f"No public search for {entity!r}; expected one of {', '.join(PORTAL_RESULTS)}")
     if not _is_accession(linked_to):
         raise ValueError(f"Not a plausible accession: {linked_to!r}")
 
     with ENAClient(username=username or None, password=password or None) as client:
         query = _clause(client, result, linked_to)
         if not query:
-            raise ValueError(
-                f"ENA cannot list {entity} by {linked_to!r} — that result has no field to match it on"
-            )
+            raise ValueError(f"ENA cannot list {entity} by {linked_to!r} — that result has no field to match it on")
         return _rows(client, result, query)
 
 

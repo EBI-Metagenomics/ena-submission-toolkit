@@ -230,8 +230,8 @@ class TestListRecords:
 
         row = records.list_records(CREDS, "samples", test=True, full_fields=True)[0]
 
-        assert row["title"] == "Report title"                      # the report column is untouched
-        assert row["attr:title"] == "What the checklist calls it"   # and the attribute survives
+        assert row["title"] == "Report title"  # the report column is untouched
+        assert row["attr:title"] == "What the checklist calls it"  # and the attribute survives
         assert row["attr:host"] == "Homo sapiens"
 
     def test_full_fields_matches_the_xml_on_either_accession_form(self, fake_client, monkeypatch):
@@ -538,8 +538,8 @@ class TestRecordXmlSource:
             CREDS, "samples", [{"accession": "ERS9000001", "changes": {"title": "New"}}], test=True
         )
         assert result["success"] is True
-        assert fake_client.xml_entities == ["samples"]     # ENA calls a study a project, a sample a sample
-        assert fake_client.browser_batches == []           # never asked, so a 404 there cannot break this
+        assert fake_client.xml_entities == ["samples"]  # ENA calls a study a project, a sample a sample
+        assert fake_client.browser_batches == []  # never asked, so a 404 there cannot break this
 
     def test_a_study_is_asked_for_as_a_project(self, fake_client):
         fake_client._reports_xml = b'<PROJECT_SET><PROJECT accession="PRJEB1"><TITLE>T</TITLE></PROJECT></PROJECT_SET>'
@@ -549,7 +549,7 @@ class TestRecordXmlSource:
     def test_a_record_the_account_does_not_own_falls_back_to_the_browser(self, fake_client):
         """The Portal can list somebody else's records; the Browser API is the
         only place their XML exists."""
-        fake_client._reports_xml = None          # ENA: "none of these are yours"
+        fake_client._reports_xml = None  # ENA: "none of these are yours"
         fake_client._xml = SAMPLE_XML
         fields = records.read_editable_fields(CREDS, "samples", ["ERS9000001"], test=True)
         assert fields["ERS9000001"]["title"] == "Old title"
@@ -570,11 +570,11 @@ class TestAttributeChanges:
 
     def submitted_attributes(self, fake_client) -> dict[str, str]:
         record = etree.fromstring(fake_client.submitted[-1]).find(".//SAMPLE")
+        assert record is not None
         return {
-            a.findtext("TAG"): " ".join(
-                part for part in (a.findtext("VALUE"), a.findtext("UNITS")) if part
-            )
+            tag: " ".join(part for part in (a.findtext("VALUE"), a.findtext("UNITS")) if part)
             for a in record.iter("SAMPLE_ATTRIBUTE")
+            if (tag := a.findtext("TAG")) is not None
         }
 
     def test_changes_the_attribute_and_leaves_the_others_alone(self, fake_client):
@@ -647,9 +647,7 @@ class TestAttributeChanges:
             [{"accession": "ERS9000001", "changes": {"attr:depth": "45 cm"}}],
             test=True,
         )
-        assert records.undo_changes(done) == [
-            {"accession": "ERS9000001", "changes": {"attr:depth": "30 cm"}}
-        ]
+        assert records.undo_changes(done) == [{"accession": "ERS9000001", "changes": {"attr:depth": "30 cm"}}]
 
 
 class TestUndoChanges:
@@ -658,9 +656,7 @@ class TestUndoChanges:
         done = records.modify_records(CREDS, "samples", change, test=True)
 
         undo = records.undo_changes(done)
-        assert undo == [
-            {"accession": "ERS9000001", "changes": {"title": "Old title", "alias": "old-alias"}}
-        ]
+        assert undo == [{"accession": "ERS9000001", "changes": {"title": "Old title", "alias": "old-alias"}}]
 
         # Applying it puts the document back where it started.
         records.modify_records(CREDS, "samples", undo, test=True)

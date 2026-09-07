@@ -22,15 +22,21 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
-from ena_api import StudyReport, WebinClient, WebinConfig
+from click.testing import CliRunner as _ClickRunner
+from ena_api import StudyReport, WebinConfig
 from typer.testing import CliRunner
+
+
+# typer.testing.CliRunner is standalone as of typer 0.27 and no longer
+# carries click's isolated_filesystem; borrow it from click directly.
+def _isolated_filesystem():  # type: ignore[no-untyped-def]
+    return _ClickRunner().isolated_filesystem()
 
 
 from ena_submission_toolkit.submit_study import (  # noqa: E402
     app,
     build_manifest,
     build_submission_xml,
-    submit_manifest,
     validate_manifest,
 )
 
@@ -74,7 +80,6 @@ def mag_genome_study() -> dict[str, Any]:
     }
 
 
-
 @pytest.fixture
 def runner() -> CliRunner:
     return CliRunner()
@@ -91,7 +96,6 @@ def real_xsd_dir() -> Path:
 
 
 class TestBuildSubmissionXml:
-
     @staticmethod
     def _to_str(root: ET.Element) -> str:
         return ET.tostring(root, encoding="unicode")
@@ -186,7 +190,6 @@ class TestBuildSubmissionXml:
 
 
 class TestBuildManifest:
-
     def test_returns_bytes(self, basic_study: dict[str, Any]) -> None:
         result = build_manifest([basic_study])
         assert isinstance(result, bytes)
@@ -237,7 +240,6 @@ def _valid_study_xml_bytes(alias: str = "study-1", title: str = "Test Study") ->
 
 
 class TestValidateManifest:
-
     def test_valid_xml_passes(self, real_xsd_dir: Path) -> None:
         is_valid, messages = validate_manifest(_valid_study_xml_bytes(), real_xsd_dir)
         assert is_valid, f"Expected valid; messages: {messages}"
@@ -322,7 +324,7 @@ def _extract_json(output: str) -> dict[str, Any]:
                 break
     if start == -1 or end == -1:
         raise ValueError(f"No JSON object found in output: {output[:200]!r}")
-    return json.loads(output[start:end + 1])
+    return json.loads(output[start : end + 1])
 
 
 def _make_study_json(study: dict[str, Any]) -> str:
@@ -338,8 +340,16 @@ def minimal_study() -> dict[str, Any]:
     }
 
 
-_MOCK_ACC = [{"alias": "a", "accession": "PRJEB1", "status": "PRIVATE",
-              "holdUntilDate": "", "external_accession": "", "external_type": ""}]
+_MOCK_ACC = [
+    {
+        "alias": "a",
+        "accession": "PRJEB1",
+        "status": "PRIVATE",
+        "holdUntilDate": "",
+        "external_accession": "",
+        "external_type": "",
+    }
+]
 
 
 class TestMainCli:
@@ -347,7 +357,7 @@ class TestMainCli:
     _SUBMIT_TARGET = "ena_submission_toolkit.submit_study.submit_manifest"
 
     def _invoke(self, runner: CliRunner, args: list[str], input_filename: str, input_content: str) -> Any:
-        with runner.isolated_filesystem():
+        with _isolated_filesystem():
             Path(input_filename).write_text(input_content)
             base_args = ["--xsd", _REAL_XSD_DIR]
             result = runner.invoke(
@@ -359,8 +369,10 @@ class TestMainCli:
 
     def test_exits_0_and_submits(self, runner: CliRunner, minimal_study: dict[str, Any]) -> None:
         content = _make_study_json(minimal_study)
-        with patch(self._CRED_TARGET, return_value=("Webin-12345", "pass")), \
-             patch(self._SUBMIT_TARGET, return_value=(True, _MOCK_ACC, [])):
+        with (
+            patch(self._CRED_TARGET, return_value=("Webin-12345", "pass")),
+            patch(self._SUBMIT_TARGET, return_value=(True, _MOCK_ACC, [])),
+        ):
             result = self._invoke(runner, [], "studies.json", content)
         assert result.exit_code == 0, f"output: {result.output}"
         assert "submitted" in _extract_json(result.output)
@@ -376,10 +388,12 @@ class TestMainCli:
             status="PRIVATE",
         )
         content = _make_study_json(minimal_study)
-        with runner.isolated_filesystem():
+        with _isolated_filesystem():
             Path("studies.json").write_text(content)
-            with patch(self._CRED_TARGET, return_value=("Webin-12345", "pass")), \
-                 patch("ena_submission_toolkit.submit_study.common.WebinClient") as MockClient:
+            with (
+                patch(self._CRED_TARGET, return_value=("Webin-12345", "pass")),
+                patch("ena_submission_toolkit.submit_study.common.WebinClient") as MockClient,
+            ):
                 MockClient.return_value.reports.list_projects.return_value = [existing]
                 result = runner.invoke(
                     app,
@@ -392,9 +406,7 @@ class TestMainCli:
         assert data["duplicates"][0]["existing_accession"] == "PRJEB55555"
         assert data["submitted"] == []
 
-    def test_force_flag_with_duplicate_triggers_modify(
-        self, runner: CliRunner, minimal_study: dict[str, Any]
-    ) -> None:
+    def test_force_flag_with_duplicate_triggers_modify(self, runner: CliRunner, minimal_study: dict[str, Any]) -> None:
         existing = StudyReport(
             title=minimal_study["TITLE"],
             alias=minimal_study["alias"],
@@ -402,15 +414,24 @@ class TestMainCli:
             secondary_accession="ERP066666",
             status="PRIVATE",
         )
-        mock_accessions = [{"alias": "cli-metagenomics-001", "accession": "PRJEB66666",
-                            "status": "PRIVATE", "holdUntilDate": "",
-                            "external_accession": "", "external_type": ""}]
+        mock_accessions = [
+            {
+                "alias": "cli-metagenomics-001",
+                "accession": "PRJEB66666",
+                "status": "PRIVATE",
+                "holdUntilDate": "",
+                "external_accession": "",
+                "external_type": "",
+            }
+        ]
         content = _make_study_json(minimal_study)
-        with runner.isolated_filesystem():
+        with _isolated_filesystem():
             Path("studies.json").write_text(content)
-            with patch(self._CRED_TARGET, return_value=("Webin-12345", "pass")), \
-                 patch("ena_submission_toolkit.submit_study.common.WebinClient") as MockClient, \
-                 patch(self._SUBMIT_TARGET, return_value=(True, mock_accessions, [])):
+            with (
+                patch(self._CRED_TARGET, return_value=("Webin-12345", "pass")),
+                patch("ena_submission_toolkit.submit_study.common.WebinClient") as MockClient,
+                patch(self._SUBMIT_TARGET, return_value=(True, mock_accessions, [])),
+            ):
                 MockClient.return_value.reports.list_projects.return_value = [existing]
                 result = runner.invoke(
                     app,
@@ -425,8 +446,10 @@ class TestMainCli:
     def test_failed_submission_exits_1(self, runner: CliRunner, minimal_study: dict[str, Any]) -> None:
         content = _make_study_json(minimal_study)
         http_error = httpx.HTTPStatusError("500", request=MagicMock(), response=MagicMock(status_code=500))
-        with patch(self._CRED_TARGET, return_value=("Webin-12345", "pass")), \
-             patch(self._SUBMIT_TARGET, side_effect=http_error):
+        with (
+            patch(self._CRED_TARGET, return_value=("Webin-12345", "pass")),
+            patch(self._SUBMIT_TARGET, side_effect=http_error),
+        ):
             result = self._invoke(runner, [], "studies.json", content)
         assert result.exit_code == 1
 
@@ -454,10 +477,12 @@ class TestMainCli:
 
     def test_output_flag_writes_results_to_file(self, runner: CliRunner, minimal_study: dict[str, Any]) -> None:
         content = _make_study_json(minimal_study)
-        with runner.isolated_filesystem():
+        with _isolated_filesystem():
             Path("studies.json").write_text(content)
-            with patch(self._CRED_TARGET, return_value=("Webin-12345", "pass")), \
-                 patch(self._SUBMIT_TARGET, return_value=(True, _MOCK_ACC, [])):
+            with (
+                patch(self._CRED_TARGET, return_value=("Webin-12345", "pass")),
+                patch(self._SUBMIT_TARGET, return_value=(True, _MOCK_ACC, [])),
+            ):
                 result = runner.invoke(
                     app,
                     ["--input", "studies.json", "--output", "results.json", "--xsd", _REAL_XSD_DIR],

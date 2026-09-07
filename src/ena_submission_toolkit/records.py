@@ -294,9 +294,7 @@ def _merge_portal_fields(creds: Credentials, entity: str, rows: list[dict[str, A
     keys = ("accession", "secondary_accession")
     accessions = [row[key] for row in rows for key in keys if isinstance(row.get(key), str) and row[key]]
     try:
-        indexed = portal.fields_for_accessions(
-            entity, accessions, username=creds.username, password=creds.password
-        )
+        indexed = portal.fields_for_accessions(entity, accessions, username=creds.username, password=creds.password)
     except Exception:  # noqa: BLE001 - enrichment must never lose the listing
         logger.warning("Could not read full fields from the ENA Portal API; showing report fields only")
         return
@@ -374,8 +372,9 @@ def _xml_fields(record: etree._Element) -> tuple[dict[str, str], dict[str, str]]
         parent = element.getparent()
         if parent is not None and isinstance(parent.tag, str) and parent.tag.endswith("_ATTRIBUTE"):
             continue  # an attribute's own TAG/VALUE/UNITS, already taken above
-        if len(element) == 0 and (element.text or "").strip():
-            leaves.setdefault(tag.lower(), element.text.strip())
+        text = (element.text or "").strip()
+        if len(element) == 0 and text:
+            leaves.setdefault(tag.lower(), text)
     return leaves, attributes
 
 
@@ -539,11 +538,10 @@ def _keep_by_link(
     unlinked: bool,
 ) -> bool:
     ids = _row_ids(row)
-    if unlinked:
-        # Linked means something *other than this record* is in its group;
-        # every record is trivially in its own.
-        if any(index.get(accession, set()) - ids for accession in ids):
-            return False
+    # Linked means something *other than this record* is in its group;
+    # every record is trivially in its own.
+    if unlinked and any(index.get(accession, set()) - ids for accession in ids):
+        return False
     return bool(ids & related) if related else True
 
 
@@ -681,9 +679,7 @@ def _apply_attribute_change(record: etree._Element, entity: str, field: str, val
     if tag.upper().startswith(_RESERVED_ATTRIBUTE_PREFIX):
         raise ValueError(f"{tag!r} is maintained by ENA and cannot be changed")
 
-    attribute = next(
-        (a for a in record.findall(path) if (a.findtext("TAG") or "").strip() == tag), None
-    )
+    attribute = next((a for a in record.findall(path) if (a.findtext("TAG") or "").strip() == tag), None)
     if attribute is None:
         raise LookupError(f"The record's XML has no {tag!r} attribute to change")
 
@@ -780,9 +776,7 @@ def _build_manifests(
                 for field in changes
                 if field.startswith(ATTRIBUTE_PREFIX) or field in _EDITABLE.get(entity, {})
             }
-            result["undo_xml"] = _modify_document(
-                copy.deepcopy(record), entity, submission_alias
-            ).decode("utf-8")
+            result["undo_xml"] = _modify_document(copy.deepcopy(record), entity, submission_alias).decode("utf-8")
             for field, value in changes.items():
                 _apply_change(record, entity, field, value)
             document = _modify_document(record, entity, submission_alias)

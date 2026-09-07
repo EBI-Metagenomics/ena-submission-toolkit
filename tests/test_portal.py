@@ -36,9 +36,7 @@ class FakeENAClient:
         return None
 
     def search(self, *, result: Any, query: Any, **kwargs: Any) -> list[FakeModel]:
-        type(self).calls.append(
-            {"result": result, "query": query.to_query_string(), **kwargs}
-        )
+        type(self).calls.append({"result": result, "query": query.to_query_string(), **kwargs})
         rows = type(self).answers.pop(0) if type(self).answers else []
         return [FakeModel(row) for row in rows]
 
@@ -140,7 +138,7 @@ class TestSearchPublic:
 
     def test_rejects_an_implausible_accession(self, fake_ena):
         with pytest.raises(ValueError, match="Not a plausible accession"):
-            portal.search_public("runs", '../../etc/passwd')
+            portal.search_public("runs", "../../etc/passwd")
 
     def test_rejects_a_relationship_ena_cannot_answer(self, fake_ena):
         # A study row carries no run accession, so "which studies contain

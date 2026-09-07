@@ -23,8 +23,15 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
+from click.testing import CliRunner as _ClickRunner
 from ena_api import SampleReport, WebinClient, WebinConfig
 from typer.testing import CliRunner
+
+
+# typer.testing.CliRunner is standalone as of typer 0.27 and no longer
+# carries click's isolated_filesystem; borrow it from click directly.
+def _isolated_filesystem():  # type: ignore[no-untyped-def]
+    return _ClickRunner().isolated_filesystem()
 
 
 from ena_submission_toolkit.submit_sample import (  # noqa: E402
@@ -35,10 +42,10 @@ from ena_submission_toolkit.submit_sample import (  # noqa: E402
     validate_manifest,
 )
 
-
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def basic_sample() -> dict[str, Any]:
@@ -54,8 +61,6 @@ def basic_sample() -> dict[str, Any]:
 @pytest.fixture
 def minimal_sample() -> dict[str, Any]:
     return {"alias": "minimal-001", "TAXON_ID": 9606, "SAMPLE_TITLE": "Minimal Sample"}
-
-
 
 
 def _make_client(samples: list | None = None) -> WebinClient:
@@ -85,6 +90,7 @@ def runner() -> CliRunner:
 # A. build_manifest / build_submission_xml
 # ---------------------------------------------------------------------------
 
+
 class TestBuildSubmissionXml:
     """Unit tests for the low-level build_submission_xml / _add_sample_element functions."""
 
@@ -94,15 +100,21 @@ class TestBuildSubmissionXml:
 
     def test_sample_title_round_trips(self, basic_sample: dict[str, Any]) -> None:
         root = build_submission_xml([basic_sample])
-        assert root.find(".//TITLE").text == basic_sample["SAMPLE_TITLE"]
+        title = root.find(".//TITLE")
+        assert title is not None
+        assert title.text == basic_sample["SAMPLE_TITLE"]
 
     def test_taxon_id_round_trips(self, basic_sample: dict[str, Any]) -> None:
         root = build_submission_xml([basic_sample])
-        assert root.find(".//TAXON_ID").text == str(basic_sample["TAXON_ID"])
+        taxon = root.find(".//TAXON_ID")
+        assert taxon is not None
+        assert taxon.text == str(basic_sample["TAXON_ID"])
 
     def test_alias_round_trips(self, basic_sample: dict[str, Any]) -> None:
         root = build_submission_xml([basic_sample])
-        assert root.find(".//SAMPLE").get("alias") == basic_sample["alias"]
+        sample_el = root.find(".//SAMPLE")
+        assert sample_el is not None
+        assert sample_el.get("alias") == basic_sample["alias"]
 
     def test_scientific_name_present_when_given(self, basic_sample: dict[str, Any]) -> None:
         root = build_submission_xml([basic_sample])
@@ -117,7 +129,9 @@ class TestBuildSubmissionXml:
     def test_common_name_present_when_given(self) -> None:
         sample = {"alias": "s1", "TAXON_ID": 9606, "COMMON_NAME": "human"}
         root = build_submission_xml([sample])
-        assert root.find(".//COMMON_NAME").text == "human"
+        common_name = root.find(".//COMMON_NAME")
+        assert common_name is not None
+        assert common_name.text == "human"
 
     def test_non_reserved_fields_become_sample_attributes(self, basic_sample: dict[str, Any]) -> None:
         root = build_submission_xml([basic_sample])
@@ -170,7 +184,9 @@ class TestBuildSubmissionXml:
     def test_alias_derived_from_title_when_absent(self) -> None:
         sample = {"SAMPLE_TITLE": "My Derived Sample", "TAXON_ID": 9606}
         root = build_submission_xml([sample])
-        alias = root.find(".//SAMPLE").get("alias", "")
+        sample_el = root.find(".//SAMPLE")
+        assert sample_el is not None
+        alias = sample_el.get("alias", "")
         assert "My_Derived_Sample" in alias or "_" in alias
 
     def test_reserved_fields_not_in_sample_attributes(self, basic_sample: dict[str, Any]) -> None:
@@ -212,9 +228,7 @@ class TestBuildManifest:
         xml_bytes = build_manifest([sample], slot_to_unit={"sample storage temperature": "°C"})
         root = ET.fromstring(xml_bytes)
         attr = next(
-            attr
-            for attr in root.findall(".//SAMPLE_ATTRIBUTE")
-            if attr.findtext("TAG") == "sample storage temperature"
+            attr for attr in root.findall(".//SAMPLE_ATTRIBUTE") if attr.findtext("TAG") == "sample storage temperature"
         )
         assert attr.findtext("VALUE") == "-80"
         assert attr.findtext("UNITS") == "°C"
@@ -223,6 +237,7 @@ class TestBuildManifest:
 # ---------------------------------------------------------------------------
 # B. validate_manifest
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def real_xsd_dir() -> Path:
@@ -295,6 +310,7 @@ class TestValidateManifest:
 # C. Unit tests for submit_manifest
 # ---------------------------------------------------------------------------
 
+
 class TestSubmitManifest:
     """Unit tests for submit_manifest() — calls client.submit.xml and converts the receipt."""
 
@@ -339,6 +355,7 @@ class TestSubmitManifest:
 # D. CLI integration tests
 # ---------------------------------------------------------------------------
 
+
 def _make_sample_json(sample: dict[str, Any]) -> str:
     return json.dumps({"Container": {"samples": [sample]}})
 
@@ -359,7 +376,7 @@ def _extract_json(output: str) -> dict[str, Any]:
                 break
     if start == -1 or end == -1:
         raise ValueError(f"No JSON found in output: {output[:200]!r}")
-    return json.loads(output[start:end + 1])
+    return json.loads(output[start : end + 1])
 
 
 _REAL_XSD_DIR = str(Path(__file__).parent.parent / "src" / "ena_submission_toolkit" / "assets" / "ena_schema")
@@ -375,18 +392,29 @@ class TestMainCli:
         return ["--xsd", _REAL_XSD_DIR]
 
     def _invoke(self, runner: CliRunner, args: list[str], filename: str, content: str) -> Any:
-        with runner.isolated_filesystem():
+        with _isolated_filesystem():
             Path(filename).write_text(content)
             return runner.invoke(
-                app, ["--input", filename] + self._base_args() + args,
+                app,
+                ["--input", filename] + self._base_args() + args,
                 catch_exceptions=False,
             )
 
     def test_exits_0_and_submits(self, runner: CliRunner, basic_sample: dict[str, Any]) -> None:
-        mock_acc = [{"alias": "test-sample-001", "accession": "ERS00001", "status": "PRIVATE",
-                     "holdUntilDate": "", "external_accession": "", "external_type": ""}]
-        with patch(self._CRED, return_value=("Webin-12345", "pass")), \
-             patch(self._SUBMIT, return_value=(True, mock_acc, [])):
+        mock_acc = [
+            {
+                "alias": "test-sample-001",
+                "accession": "ERS00001",
+                "status": "PRIVATE",
+                "holdUntilDate": "",
+                "external_accession": "",
+                "external_type": "",
+            }
+        ]
+        with (
+            patch(self._CRED, return_value=("Webin-12345", "pass")),
+            patch(self._SUBMIT, return_value=(True, mock_acc, [])),
+        ):
             result = self._invoke(runner, [], "samples.json", _make_sample_json(basic_sample))
         assert result.exit_code == 0, result.output
         assert "submitted" in _extract_json(result.output)
@@ -395,10 +423,13 @@ class TestMainCli:
         self, runner: CliRunner, basic_sample: dict[str, Any]
     ) -> None:
         existing = SampleReport(
-            title=basic_sample["SAMPLE_TITLE"], alias=basic_sample["alias"],
-            accession="ERS55555", secondary_accession="SAMEA55555", status="PRIVATE",
+            title=basic_sample["SAMPLE_TITLE"],
+            alias=basic_sample["alias"],
+            accession="ERS55555",
+            secondary_accession="SAMEA55555",
+            status="PRIVATE",
         )
-        with runner.isolated_filesystem():
+        with _isolated_filesystem():
             Path("samples.json").write_text(_make_sample_json(basic_sample))
             with (
                 patch(self._CRED, return_value=("Webin-12345", "pass")),
@@ -406,7 +437,8 @@ class TestMainCli:
             ):
                 MockClient.return_value.reports.list_samples.return_value = [existing]
                 result = runner.invoke(
-                    app, ["--input", "samples.json"] + self._base_args() + ["--check-for-duplicates"],
+                    app,
+                    ["--input", "samples.json"] + self._base_args() + ["--check-for-duplicates"],
                     catch_exceptions=False,
                 )
         assert result.exit_code == 0, result.output
@@ -415,16 +447,25 @@ class TestMainCli:
         assert data["duplicates"][0]["existing_accession"] == "ERS55555"
         assert data["submitted"] == []
 
-    def test_force_flag_with_duplicate_triggers_modify(
-        self, runner: CliRunner, basic_sample: dict[str, Any]
-    ) -> None:
+    def test_force_flag_with_duplicate_triggers_modify(self, runner: CliRunner, basic_sample: dict[str, Any]) -> None:
         existing = SampleReport(
-            title=basic_sample["SAMPLE_TITLE"], alias=basic_sample["alias"],
-            accession="ERS66666", secondary_accession="", status="PRIVATE",
+            title=basic_sample["SAMPLE_TITLE"],
+            alias=basic_sample["alias"],
+            accession="ERS66666",
+            secondary_accession="",
+            status="PRIVATE",
         )
-        mock_acc = [{"alias": "test-sample-001", "accession": "ERS66666", "status": "PRIVATE",
-                     "holdUntilDate": "", "external_accession": "", "external_type": ""}]
-        with runner.isolated_filesystem():
+        mock_acc = [
+            {
+                "alias": "test-sample-001",
+                "accession": "ERS66666",
+                "status": "PRIVATE",
+                "holdUntilDate": "",
+                "external_accession": "",
+                "external_type": "",
+            }
+        ]
+        with _isolated_filesystem():
             Path("samples.json").write_text(_make_sample_json(basic_sample))
             with (
                 patch(self._CRED, return_value=("Webin-12345", "pass")),
@@ -433,7 +474,8 @@ class TestMainCli:
             ):
                 MockClient.return_value.reports.list_samples.return_value = [existing]
                 result = runner.invoke(
-                    app, ["--input", "samples.json"] + self._base_args() + ["--force", "--check-for-duplicates"],
+                    app,
+                    ["--input", "samples.json"] + self._base_args() + ["--force", "--check-for-duplicates"],
                     catch_exceptions=False,
                 )
         assert result.exit_code == 0, result.output
@@ -443,22 +485,31 @@ class TestMainCli:
 
     def test_failed_submission_exits_1(self, runner: CliRunner, basic_sample: dict[str, Any]) -> None:
         http_err = httpx.HTTPStatusError("500", request=MagicMock(), response=MagicMock(status_code=500))
-        with runner.isolated_filesystem():
+        with _isolated_filesystem():
             Path("samples.json").write_text(_make_sample_json(basic_sample))
             with (
                 patch(self._CRED, return_value=("Webin-12345", "pass")),
                 patch(self._SUBMIT, side_effect=http_err),
             ):
                 result = runner.invoke(
-                    app, ["--input", "samples.json"] + self._base_args(),
+                    app,
+                    ["--input", "samples.json"] + self._base_args(),
                     catch_exceptions=False,
                 )
         assert result.exit_code == 1
 
     def test_test_flag_creates_test_config(self, runner: CliRunner, basic_sample: dict[str, Any]) -> None:
-        mock_acc = [{"alias": "test-sample-001", "accession": "ERS00001", "status": "PRIVATE",
-                     "holdUntilDate": "", "external_accession": "", "external_type": ""}]
-        with runner.isolated_filesystem():
+        mock_acc = [
+            {
+                "alias": "test-sample-001",
+                "accession": "ERS00001",
+                "status": "PRIVATE",
+                "holdUntilDate": "",
+                "external_accession": "",
+                "external_type": "",
+            }
+        ]
+        with _isolated_filesystem():
             Path("samples.json").write_text(_make_sample_json(basic_sample))
             with (
                 patch(self._CRED, return_value=("Webin-12345", "pass")),
@@ -466,16 +517,25 @@ class TestMainCli:
                 patch("ena_submission_toolkit.submit_sample.common.WebinConfig", wraps=WebinConfig) as MockConfig,
             ):
                 result = runner.invoke(
-                    app, ["--input", "samples.json"] + self._base_args() + ["--test"],
+                    app,
+                    ["--input", "samples.json"] + self._base_args() + ["--test"],
                     catch_exceptions=False,
                 )
         assert result.exit_code == 0, result.output
         assert MockConfig.call_args.kwargs.get("test") is True
 
     def test_no_test_flag_creates_prod_config(self, runner: CliRunner, basic_sample: dict[str, Any]) -> None:
-        mock_acc = [{"alias": "test-sample-001", "accession": "ERS00002", "status": "PRIVATE",
-                     "holdUntilDate": "", "external_accession": "", "external_type": ""}]
-        with runner.isolated_filesystem():
+        mock_acc = [
+            {
+                "alias": "test-sample-001",
+                "accession": "ERS00002",
+                "status": "PRIVATE",
+                "holdUntilDate": "",
+                "external_accession": "",
+                "external_type": "",
+            }
+        ]
+        with _isolated_filesystem():
             Path("samples.json").write_text(_make_sample_json(basic_sample))
             with (
                 patch(self._CRED, return_value=("Webin-12345", "pass")),
@@ -483,17 +543,20 @@ class TestMainCli:
                 patch("ena_submission_toolkit.submit_sample.common.WebinConfig", wraps=WebinConfig) as MockConfig,
             ):
                 result = runner.invoke(
-                    app, ["--input", "samples.json"] + self._base_args(),
+                    app,
+                    ["--input", "samples.json"] + self._base_args(),
                     catch_exceptions=False,
                 )
         assert result.exit_code == 0, result.output
         assert MockConfig.call_args.kwargs.get("test") is False
 
     def test_output_flag_writes_results_to_file(self, runner: CliRunner, basic_sample: dict[str, Any]) -> None:
-        with runner.isolated_filesystem():
+        with _isolated_filesystem():
             Path("samples.json").write_text(_make_sample_json(basic_sample))
-            with patch(self._CRED, return_value=("Webin-12345", "pass")), \
-                 patch(self._SUBMIT, return_value=(True, [], [])):
+            with (
+                patch(self._CRED, return_value=("Webin-12345", "pass")),
+                patch(self._SUBMIT, return_value=(True, [], [])),
+            ):
                 result = runner.invoke(
                     app,
                     ["--input", "samples.json"] + self._base_args() + ["--output", "results.json"],
@@ -508,6 +571,7 @@ class TestMainCli:
 # ---------------------------------------------------------------------------
 # Parametrized coverage
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("hold_until,expect_hold", [("2027-03-01", True), ("2028-12-31", True), (None, False)])
 def test_hold_until_element_conditional(hold_until: str | None, expect_hold: bool) -> None:
