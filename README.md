@@ -5,9 +5,9 @@ DataHarmonizer-exported data.
 
 A schema-driven layer above two smaller libraries:
 
-- [`ena-api-client`](https://github.com/timrozday-mgnify/ena-api-client) — transport: a typed
+- [`ena-api-client`](https://github.com/EBI-Metagenomics/ena-api-client) — transport: a typed
   client for the Webin Submission v2 and Reports APIs.
-- [`linkml-lib`](https://github.com/timrozday-mgnify/linkml-lib) — schema introspection: generic
+- [`linkml-lib`](https://github.com/EBI-Metagenomics/linkml-lib) — schema introspection: generic
   LinkML schema helpers (slot metadata, unit rules, etc.), no ENA awareness beyond the `ena_*`
   annotation conventions it documents.
 
@@ -18,10 +18,9 @@ human-readable titles to their LinkML `annotations.id` values, and browsing/edit
 already held under a Webin account.
 
 Every application in this ecosystem talks to ENA **through here** (or through `ena-api-client`
-directly) and nowhere else — [`ena-browser-ui`](https://github.com/timrozday-mgnify/ena-browser-ui)
-and [`mimicc-ena-submission-assistant`](https://github.com/timrozday-mgnify/mimicc-ena-submission-assistant)
-are HTTP/UI shells over `ena_submission_toolkit.records`, and the
-[`ena-browser`](https://github.com/timrozday-mgnify/ena-browser) element is a pure view that never
+directly) and nowhere else — [`mimicc-ena-submission-assistant`](https://github.com/EBI-Metagenomics/mimicc-ena-submission-assistant)
+and similar HTTP/UI shells use `ena_submission_toolkit.records`, and the
+[`ena-browser`](https://github.com/EBI-Metagenomics/ena-browser) element is a pure view that never
 makes an ENA request at all.
 
 ## Modules
@@ -84,13 +83,13 @@ makes an ENA request at all.
 ## Install
 
 ```bash
-pip install "ena-submission-toolkit @ git+https://github.com/timrozday-mgnify/ena-submission-toolkit.git"
+pip install "ena-submission-toolkit @ git+https://github.com/EBI-Metagenomics/ena-submission-toolkit.git"
 ```
 
 or, for local development:
 
 ```bash
-git clone https://github.com/timrozday-mgnify/ena-submission-toolkit.git
+git clone https://github.com/EBI-Metagenomics/ena-submission-toolkit.git
 cd ena-submission-toolkit
 pip install -e ".[dev]"
 pytest
