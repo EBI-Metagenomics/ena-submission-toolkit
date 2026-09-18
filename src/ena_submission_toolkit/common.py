@@ -25,6 +25,7 @@ import lxml.etree
 import pendulum
 from ena_api import WebinClient, WebinConfig
 from linkml_lib.schema import UnitRule
+from pydantic import SecretStr
 
 _LOGGER_NAME: Final = "ena_submit"
 logger = logging.getLogger(_LOGGER_NAME)
@@ -93,7 +94,7 @@ def get_credentials() -> tuple[str, str]:
 def create_webin_client(test: bool = False) -> WebinClient:
     """Create an authenticated WebinClient using environment credentials."""
     username, password = get_credentials()
-    return WebinClient(config=WebinConfig(webin_id=username, password=password, test=test))
+    return WebinClient(config=WebinConfig(webin_id=username, password=SecretStr(password), test=test))
 
 
 # -------------------------------------------------------------------
