@@ -63,7 +63,7 @@ def minimal_sample() -> dict[str, Any]:
     return {"alias": "minimal-001", "TAXON_ID": 9606, "SAMPLE_TITLE": "Minimal Sample"}
 
 
-def _make_client(samples: list | None = None) -> WebinClient:
+def _make_client(samples: list | None = None) -> Any:
     """Return a WebinClient mock whose reports.list_samples returns *samples*."""
     client = MagicMock(spec=WebinClient)
     client.reports.list_samples.return_value = samples or []

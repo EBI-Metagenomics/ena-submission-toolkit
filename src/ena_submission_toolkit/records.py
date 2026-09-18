@@ -24,6 +24,7 @@ from typing import Any, Final
 
 from ena_api import WebinClient, WebinConfig, is_accession
 from lxml import etree
+from pydantic import SecretStr
 
 from . import portal
 from .common import validate_hold_until
@@ -139,7 +140,7 @@ class Credentials:
 @contextmanager
 def webin_client(creds: Credentials, test: bool) -> Iterator[WebinClient]:
     """An authenticated ``WebinClient`` for the duration of the block."""
-    client = WebinClient(config=WebinConfig(webin_id=creds.username, password=creds.password, test=test))
+    client = WebinClient(config=WebinConfig(webin_id=creds.username, password=SecretStr(creds.password), test=test))
     try:
         yield client
     finally:

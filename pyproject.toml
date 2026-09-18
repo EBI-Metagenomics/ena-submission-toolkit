@@ -20,16 +20,18 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 dependencies = [
-    # v0.1.3 is the release carrying reports.xml, which records._record_xml
-    # needs: without it every record read falls back to the Browser API,
-    # which serves no private record — no checklist attributes in a listing,
-    # and no MODIFY of a record the account still holds.
-    "ena-api-client @ git+https://github.com/EBI-Metagenomics/ena-api-client.git@v0.1.3",
+    # v0.2.0 generates the report models from ENA's own API definitions and
+    # ships py.typed. It keeps reports.xml, which records._record_xml needs:
+    # without it every record read falls back to the Browser API, which serves
+    # no private record — no checklist attributes in a listing, and no MODIFY
+    # of a record the account still holds.
+    "ena-api-client @ git+https://github.com/EBI-Metagenomics/ena-api-client.git@v0.2.0",
     "ena-api-handler @ git+https://github.com/EBI-Metagenomics/ena-api-handler.git@v3.0.0",
     "linkml-lib @ git+https://github.com/EBI-Metagenomics/linkml-lib.git@v0.1.0",
     "httpx>=0.27",
     "lxml>=5.0",
     "pendulum>=3.0",
+    "pydantic>=2.0",
     "typer>=0.9",
 ]
 
@@ -77,11 +79,10 @@ extend-immutable-calls = ["typer.Option", "typer.Argument"]
 [tool.mypy]
 python_version = "3.11"
 
-# ena_api and linkml_lib are pinned to git tags that predate their py.typed
-# markers; drop them from this list once the pins are bumped past that.
+# linkml_lib is pinned to a git tag that predates its py.typed marker; drop it
+# from this list once the pin is bumped past that.
 [[tool.mypy.overrides]]
 module = [
-    "ena_api.*",
     "linkml_lib.*",
     "ena_api_handler.*",
     "linkml.*",
